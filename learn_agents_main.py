@@ -32,13 +32,16 @@ agent = Agent(
 async def main():
     input_items: list[TResponseInputItem] = []
     convLog = ["user:\n\tHello"]
-    atexit.register(logConversation, "test", convLog)
+    logFilename = input("Enter a name for the conversation log txt file or leave it blank for \"log.txt\": ")
+    if logFilename == "":
+        logFilename = "log"
+    atexit.register(logConversation, logFilename, convLog)
     input_items.append({"content": "Hello", "role": "user"})
     result = await Runner.run(agent, input_items)
     for new_item in result.new_items:
         agent_name = new_item.agent.name
         # print(new_item)
-        print(f"{agent_name}: {new_item.raw_item.content[-1].text}")
+        print(f"{agent_name}:\n\t{new_item.raw_item.content[-1].text}")
         convLog.append(f"{agent_name}:\n\t{new_item.raw_item.content[-1].text}")
     
     while True:
@@ -53,7 +56,6 @@ async def main():
             convLog.append(f"{agent_name}:\n\t{new_item.raw_item.content[-1].text}")
 
         input_items = result.to_input_list()
-        print(input_items)
 
 
     # response
@@ -86,8 +88,8 @@ async def main():
 #     return await asyncio.to_thread(sys.stdin.readLine)
 
 def logConversation(filename, conversation):
-    with open(filename+".txt","x") as file:
-        file.write(conversation)
+    with open(filename+".txt","w") as file:
+        file.write("\n".join(conversation))
     
 # print("F")
 if __name__ == "__main__":
