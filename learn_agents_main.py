@@ -1,10 +1,12 @@
 import asyncio
-import os
+import os, re
 import sys
 import atexit
+import requests
+from bs4 import BeautifulSoup
 
 import openai
-from agents import Agent, OpenAIChatCompletionsModel, Runner, set_tracing_disabled, TResponseInputItem
+from agents import Agent, OpenAIChatCompletionsModel, Runner, set_tracing_disabled, TResponseInputItem, function_tool
 from dotenv import load_dotenv
 
 # Disable tracing since we're not using OpenAI.com models
@@ -13,6 +15,7 @@ set_tracing_disabled(disabled=True)
 # Setup the OpenAI client to use either Azure OpenAI or GitHub Models
 # load_dotenv(override=True)
 API_HOST = os.getenv("API_HOST", "github")
+endConvo = False
 
 if API_HOST == "github":
     client = openai.AsyncOpenAI(base_url="https://models.github.ai/inference", api_key=os.environ["GITHUB_TOKEN"])#"https://models.inference.ai.azure.com", api_key=os.environ["GITHUB_TOKEN"])
@@ -20,40 +23,72 @@ if API_HOST == "github":
 else:
     # print("Exit: api_host")
     exit
-# print("\n")
-# print("\n")
-# print("A")
+
+@function_tool
+def get_webpage_content(url: str) -> str:
+    """Fetches the content of a webpage and returns it as text."""
+    try:
+        response = requests.get(url)
+        response.raise_for_status()  # Raise an error for bad responses
+        soup = BeautifulSoup(response.text, 'html.parser')
+        s = soup.find_all('p')
+        return s
+    except requests.RequestException as e:
+        return f"Error fetching the webpage: {e}"
+    
+@function_tool
+def end_conversation() -> str:
+    """Ends the conversation."""
+    global endConvo
+    endConvo = True
+    return "Goodbye!"
+
 agent = Agent(
     name="LearnGPT",
     instructions="You are a general tutor.  Help the user learn a chosen topic.",
-    model=OpenAIChatCompletionsModel(model = MODEL_NAME, openai_client=client)
+    model=OpenAIChatCompletionsModel(model = MODEL_NAME, openai_client=client),
+    tools=[get_webpage_content, end_conversation]
 )
 # print("B")
 async def main():
     input_items: list[TResponseInputItem] = []
-    convLog = ["user:\n\tHello"]
-    logFilename = input("Enter a name for the conversation log txt file or leave it blank for \"log.txt\": ")
+    convLog = ["- user:\n\t- Hello"]
+    logFilename = input("Enter a name for the conversation log txt file or leave it blank for \"log\": ")
     if logFilename == "":
         logFilename = "log"
-    atexit.register(logConversation, logFilename, convLog)
+    fileType = ""
+    while fileType not in ["txt", "md"]:
+        fileType = input("Enter a file type (txt or md): ").lower()
+        if fileType not in ["txt", "md"]:
+            print("Invalid file type. Please enter 'txt' or 'md'.")
+    if fileType == "md":
+        atexit.register(logConversationMarkdown, logFilename, convLog)
+    else:
+        atexit.register(logConversation, logFilename, convLog)
     input_items.append({"content": "Hello", "role": "user"})
     result = await Runner.run(agent, input_items)
-    for new_item in result.new_items:
-        agent_name = new_item.agent.name
-        # print(new_item)
-        print(f"{agent_name}:\n\t{new_item.raw_item.content[-1].text}")
-        convLog.append(f"{agent_name}:\n\t{new_item.raw_item.content[-1].text}")
+    agent_name = result.last_agent.name
+    print(f"{agent_name}:\n\t{result.final_output}")
+    convLog.append(f"- {agent_name}:\n\t- {result.final_output}")
+    # for new_item in result.new_items:
+    #     agent_name = new_item.agent.name
+    #     # print(new_item)
+    #     print(f"{agent_name}:\n\t{new_item.raw_item.content[-1].text}")
+    #     convLog.append(f"{agent_name}:\n\t{new_item.raw_item.content[-1].text}")
     
-    while True:
+    while not endConvo:
         user_input = input("Awaiting message...\n")
         input_items.append({"content": user_input, "role": "user"})
-        convLog.append(f"user:\n\t{user_input}")
+        convLog.append(f"- user:\n\t- {user_input}")
         result = await Runner.run(agent, input_items)
-        for new_item in result.new_items:
-            agent_name = new_item.agent.name
-            # print(new_item)
-            print(f"{agent_name}:\n\t{new_item.raw_item.content[-1].text}")
-            convLog.append(f"{agent_name}:\n\t{new_item.raw_item.content[-1].text}")
+        agent_name = result.last_agent.name
+        print(f"{agent_name}:\n\t{result.final_output}")
+        convLog.append(f"- {agent_name}:\n\t- {result.final_output}")
+        # for new_item in result.new_items:
+        #     agent_name = new_item.agent.name
+        #     # print(new_item)
+        #     print(f"{agent_name}:\n\t{new_item.raw_item.content[-1].text}")
+        #     convLog.append(f"{agent_name}:\n\t{new_item.raw_item.content[-1].text}")
 
         input_items = result.to_input_list()
 
@@ -88,8 +123,23 @@ async def main():
 #     return await asyncio.to_thread(sys.stdin.readLine)
 
 def logConversation(filename, conversation):
-    with open(filename+".txt","w") as file:
-        file.write("\n".join(conversation))
+    try:
+        with open(filename+".txt","w",encoding="utf-8") as file:
+            file.write("\n".join(conversation))
+    except Exception as e:
+        print(f"Error writing to file {filename}.txt: {e}")
+        print(conversation)
+
+def logConversationMarkdown(filename, conversation):
+    try:
+        with open(filename+".md","w",encoding="utf-8") as file:
+            fileData = "\n".join(conversation)
+            fileData = re.sub(r'\\(\[|\()', r'$', fileData)
+            fileData = re.sub(r'\\(\]|\))', r'$', fileData)
+            file.write(fileData)
+    except Exception as e:
+        print(f"Error writing to file {filename}.md: {e}")
+        print(conversation)
     
 # print("F")
 if __name__ == "__main__":
