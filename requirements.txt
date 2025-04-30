@@ -1,0 +1,6 @@
+beautifulsoup4
+asyncio
+atexit
+requests
+openai
+openai-agents
