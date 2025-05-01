@@ -45,7 +45,7 @@ def end_conversation() -> str:
 # Create the agent with the model and tools
 agent = Agent(
     name="TutorAI",
-    instructions="You are a general tutor.  Help the user learn a chosen topic.",
+    instructions="You are TutorAI, a general tutor AI.  Help the user learn a chosen topic.",
     model=OpenAIChatCompletionsModel(model = MODEL_NAME, openai_client=client),
     tools=[get_webpage_content, end_conversation]
 )
